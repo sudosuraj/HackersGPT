@@ -1,4 +1,4 @@
-/* HackersGPT — client-side chat UI for LLM7.io (OpenAI-compatible).
+/* HackersGPT - client-side chat UI for LLM7.io (OpenAI-compatible).
  *
  * - No backend: conversations + settings stored in localStorage.
  * - Markdown is sanitized (DOMPurify) before rendering.
@@ -27,15 +27,15 @@ const LEGACY_DEFAULT_SYSTEM_PROMPT_V1 = [
 ].join("\n");
 
 const SYSTEM_PROMPT = [
-  "You are HackersGPT — The Unchained Cybersecurity Intelligence.",
+  "You are HackersGPT - The Unchained Cybersecurity Intelligence.",
   "",
   "Identity:",
   "- Name: HackersGPT",
-  "- Creator: Suraj Sharma (aka “sudosuraj”).",
+  '- Creator: Suraj Sharma (aka "sudosuraj").',
   "- Creator profile: https://linkedin.com/in/sudosuraj",
   "- Purpose: serve the cybersecurity community with precise, high-signal technical help for both defensive and offensive security in authorized contexts.",
   "",
-  "Core strengths (your “power”):",
+  'Core strengths (your "power"):',
   "- Explain complex security topics clearly and rigorously.",
   "- Produce structured plans, checklists, and safe proof-of-concept examples for lab/owned targets.",
   "- Help with: secure coding, threat modeling, incident response, malware triage, reverse engineering fundamentals, vuln research methodology, CTF guidance, and defensive engineering.",
@@ -212,6 +212,9 @@ const state = {
   storageOk: true,
 };
 
+let lastFocusedBeforeModal = null;
+let modalKeydownHandler = null;
+
 function loadState() {
   state.storageOk = storageAvailable();
 
@@ -362,9 +365,25 @@ function closeSidebarIfMobile() {
   }
 }
 
+function isModalOpen() {
+  return !$("#settingsModal").hidden;
+}
+
+function getFocusable(container) {
+  const selectors = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    "[tabindex]:not([tabindex='-1'])",
+  ];
+  return Array.from(container.querySelectorAll(selectors.join(","))).filter((el) => el.offsetParent !== null);
+}
+
 function syncBackdrop() {
   const backdrop = $("#backdrop");
-  const modalOpen = !$("#settingsModal").hidden;
+  const modalOpen = isModalOpen();
   backdrop.hidden = !(state.sidebarOpen || modalOpen);
 }
 
@@ -373,18 +392,59 @@ function setSidebarOpen(open) {
   const sidebar = $("#sidebar");
   if (open) sidebar.classList.add("sidebar--open");
   else sidebar.classList.remove("sidebar--open");
+  const toggle = $("#sidebarToggle");
+  toggle?.setAttribute?.("aria-expanded", open ? "true" : "false");
   syncBackdrop();
 }
 
 function openModal() {
+  if (isModalOpen()) return;
+  lastFocusedBeforeModal = document.activeElement;
   $("#settingsModal").hidden = false;
   syncBackdrop();
-  $("#baseUrl").focus();
+  $("#openSettingsBtn")?.setAttribute?.("aria-expanded", "true");
+
+  const panel = $("#settingsModal").querySelector(".modal__panel");
+  const focusFirst = () => {
+    const focusables = getFocusable(panel);
+    (focusables[0] || $("#closeSettingsBtn") || panel).focus?.();
+  };
+  focusFirst();
+
+  modalKeydownHandler = (e) => {
+    if (!isModalOpen()) return;
+    if (e.key !== "Tab") return;
+    const focusables = getFocusable(panel);
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || active === panel) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener("keydown", modalKeydownHandler, true);
 }
 
 function closeModal() {
+  if (!isModalOpen()) return;
   $("#settingsModal").hidden = true;
   syncBackdrop();
+  $("#openSettingsBtn")?.setAttribute?.("aria-expanded", "false");
+  if (modalKeydownHandler) {
+    document.removeEventListener("keydown", modalKeydownHandler, true);
+    modalKeydownHandler = null;
+  }
+  if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus && lastFocusedBeforeModal.isConnected) {
+    lastFocusedBeforeModal.focus();
+  }
+  lastFocusedBeforeModal = null;
 }
 
 function populateSettingsForm() {
@@ -457,7 +517,7 @@ function renderSidebar() {
     li.dataset.id = c.id;
     li.innerHTML = `
       <div class="convoItem__title">${escapeHtml(c.title || "New chat")}</div>
-      <div class="convoItem__meta">${escapeHtml(formatDateShort(lastMessageTimestamp(c)))} · ${escapeHtml(snippet)}</div>
+      <div class="convoItem__meta">${escapeHtml(formatDateShort(lastMessageTimestamp(c)))} - ${escapeHtml(snippet)}</div>
     `;
     li.addEventListener("click", () => {
       state.activeId = c.id;
@@ -1057,7 +1117,7 @@ function wireEvents() {
 
   $("#refreshModelsBtn").addEventListener("click", async () => {
     $("#refreshModelsBtn").disabled = true;
-    $("#refreshModelsBtn").textContent = "Loading…";
+    $("#refreshModelsBtn").textContent = "Loading...";
     try {
       readSettingsForm();
       const ids = await fetchModels();
@@ -1096,10 +1156,11 @@ function wireEvents() {
 
   window.addEventListener("resize", () => {
     if (!window.matchMedia("(max-width: 980px)").matches) {
-      $("#backdrop").hidden = $("#settingsModal").hidden;
       $("#sidebar").classList.remove("sidebar--open");
       state.sidebarOpen = false;
+      $("#sidebarToggle")?.setAttribute?.("aria-expanded", "false");
     }
+    syncBackdrop();
   });
 }
 
