@@ -11,6 +11,8 @@ const STORAGE_KEYS = {
   settings: "hgpt_settings",
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const LEGACY_DEFAULT_SYSTEM_PROMPT_V1 = [
   "You are HackersGPT, a cybersecurity intelligence assistant for professionals and students.",
   "You provide accurate, technical, and practical guidance across defensive and offensive security topics.",
@@ -127,9 +129,25 @@ function saveJson(key, value) {
   return storageSetItem(key, JSON.stringify(value));
 }
 
-function newId() {
+function uuidv4() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
-  return `hgpt_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    // RFC 4122 v4
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  // Last-resort fallback (non-crypto); still UUID-shaped.
+  const s = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return `${s()}${s()}-${s()}-4${s().slice(1)}-a${s().slice(1)}-${s()}${s()}${s()}`.toLowerCase();
+}
+
+function newId() {
+  return uuidv4();
 }
 
 function clamp(n, min, max) {
@@ -227,6 +245,7 @@ const state = {
   abortController: null,
   inFlight: false,
   sidebarOpen: false,
+  sidebarCollapsed: false,
   storageOk: true,
   historySearch: "",
 };
@@ -239,16 +258,32 @@ function loadState() {
 
   const savedSettings = loadJson(STORAGE_KEYS.settings, {}) || {};
   state.settings = { ...DEFAULTS, ...savedSettings };
+  state.sidebarCollapsed = !!savedSettings?.uiSidebarCollapsed;
   state.conversations = loadJson(STORAGE_KEYS.conversations, []) || [];
   state.activeId = storageGetItem(STORAGE_KEYS.activeId) || null;
 
   // Conversation migration.
   let convosChanged = false;
+  const idMap = new Map();
+  const seen = new Set();
   for (const c of state.conversations) {
+    const before = c.id;
+    if (!before || !UUID_RE.test(before) || seen.has(before)) {
+      const after = uuidv4();
+      c.id = after;
+      convosChanged = true;
+      if (before) idMap.set(before, after);
+    }
+    seen.add(c.id);
+
     if (!c.updatedAt) {
       c.updatedAt = lastMessageTimestamp(c) || c.createdAt || nowIso();
       convosChanged = true;
     }
+  }
+  if (state.activeId && idMap.has(state.activeId)) {
+    state.activeId = idMap.get(state.activeId);
+    convosChanged = true;
   }
   if (convosChanged) persistConversations();
 
@@ -302,7 +337,8 @@ function persistActiveId() {
 }
 
 function persistSettings() {
-  if (!saveJson(STORAGE_KEYS.settings, state.settings)) {
+  const toSave = { ...state.settings, uiSidebarCollapsed: !!state.sidebarCollapsed };
+  if (!saveJson(STORAGE_KEYS.settings, toSave)) {
     state.storageOk = false;
   }
 }
@@ -382,6 +418,20 @@ function closeSidebarIfMobile() {
   if (window.matchMedia("(max-width: 980px)").matches) {
     setSidebarOpen(false);
   }
+}
+
+function applySidebarCollapsed() {
+  const app = $("#app");
+  if (!app) return;
+  if (state.sidebarCollapsed) app.classList.add("app--sidebarCollapsed");
+  else app.classList.remove("app--sidebarCollapsed");
+  $("#sidebarToggle")?.setAttribute?.("aria-expanded", state.sidebarCollapsed ? "false" : "true");
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = !!collapsed;
+  applySidebarCollapsed();
+  persistSettings();
 }
 
 function isModalOpen() {
@@ -694,6 +744,7 @@ function updateToBottomBtn() {
 
 function renderAll({ forceScroll = false } = {}) {
   setModelLabels(state.settings.model);
+  applySidebarCollapsed();
   renderSidebar();
   renderMessages();
   scrollToBottomIfAppropriate(forceScroll);
@@ -1192,7 +1243,14 @@ function wireEvents() {
   });
 
   $("#newChatBtn").addEventListener("click", newChat);
-  $("#sidebarToggle").addEventListener("click", () => setSidebarOpen(!state.sidebarOpen));
+  $("#sidebarToggle").addEventListener("click", () => {
+    const isMobile = window.matchMedia("(max-width: 980px)").matches;
+    if (isMobile) {
+      setSidebarOpen(!state.sidebarOpen);
+      return;
+    }
+    setSidebarCollapsed(!state.sidebarCollapsed);
+  });
 
   $("#openSettingsBtn").addEventListener("click", () => {
     populateSettingsForm();

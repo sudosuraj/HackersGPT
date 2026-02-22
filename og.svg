@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e0e10"/>
+      <stop offset="1" stop-color="#0b0c0d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="20%" cy="-10%" r="80%">
+      <stop offset="0" stop-color="#5a8fc2" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#5a8fc2" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="64" y="64" width="1072" height="502" rx="32" fill="#161618" stroke="#2a2a2d"/>
+  <text x="112" y="190" fill="#e8e8e4" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif" font-size="56" font-weight="600">
+    HackersGPT
+  </text>
+  <text x="112" y="250" fill="#8a8a85" font-family="IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif" font-size="26">
+    Cybersecurity Intelligence. Client-side. Private by default.
+  </text>
+  <text x="112" y="338" fill="#e8e8e4" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="30">
+    &gt;_ Ask. Analyze. Harden.
+  </text>
+  <rect x="112" y="420" width="976" height="2" fill="#2a2a2d"/>
+  <text x="112" y="480" fill="#5a8fc2" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="18">
+    https://hackersgpt.vercel.app
+  </text>
+</svg>
+
