@@ -297,24 +297,8 @@ a:hover {
   box-shadow: 0 5px 0 var(--text), 0 10px 0 var(--text);
 }
 
-.iconBtn__gear::before {
-  content: "⚙";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  opacity: 0.9;
-}
-
-.iconBtn__close::before {
-  content: "×";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 20px;
-  opacity: 0.9;
+.iconBtn svg {
+  display: block;
 }
 
 .chat {
@@ -488,6 +472,13 @@ a:hover {
   padding: 6px 10px;
   font-size: 12px;
   cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* Scrollbars (best-effort). */

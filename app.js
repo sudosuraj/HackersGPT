@@ -378,7 +378,9 @@ function getFocusable(container) {
     "textarea:not([disabled])",
     "[tabindex]:not([tabindex='-1'])",
   ];
-  return Array.from(container.querySelectorAll(selectors.join(","))).filter((el) => el.offsetParent !== null);
+  return Array.from(container.querySelectorAll(selectors.join(","))).filter(
+    (el) => el.tabIndex >= 0 && el.getClientRects().length > 0,
+  );
 }
 
 function syncBackdrop() {
@@ -406,15 +408,15 @@ function openModal() {
 
   const panel = $("#settingsModal").querySelector(".modal__panel");
   const focusFirst = () => {
-    const focusables = getFocusable(panel);
-    (focusables[0] || $("#closeSettingsBtn") || panel).focus?.();
+    const focusables = panel ? getFocusable(panel) : [];
+    (focusables[0] || $("#closeSettingsBtn") || panel || $("#settingsModal")).focus?.();
   };
   focusFirst();
 
   modalKeydownHandler = (e) => {
     if (!isModalOpen()) return;
     if (e.key !== "Tab") return;
-    const focusables = getFocusable(panel);
+    const focusables = panel ? getFocusable(panel) : [];
     if (focusables.length === 0) return;
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
@@ -982,7 +984,7 @@ async function sendUserMessage(text) {
     let hint = "";
     if (String(state.settings.baseUrl || "").startsWith("/api")) {
       hint =
-        "\n\nYou're using the built-in /api proxy. This works on Vercel deployments (API routes enabled). If you're serving files with a static server like `python -m http.server`, POST /api will fail.";
+        "\n\nYou're using the built-in /api proxy. On Vercel, vercel.json rewrites /api/* to LLM7.io. If you're serving files with a simple static server, /api will not exist.";
     }
     assembled = `**Error:** ${msg}${hint}`;
     updateUi(true);
@@ -1097,6 +1099,7 @@ function wireEvents() {
       if (state.sidebarOpen) setSidebarOpen(false);
     }
     if (e.key.toLowerCase() === "k" && (e.ctrlKey || e.metaKey)) {
+      if (isModalOpen()) return;
       e.preventDefault();
       newChat();
     }
@@ -1178,11 +1181,7 @@ function bootstrap() {
     fetchWithTimeout("/api/models", { method: "GET", headers: { Accept: "application/json" } }, 6000)
       .then((resp) => {
         if (resp.ok) return;
-        if (resp.status === 501) {
-          setStatus("This host doesn't support POST /api. Deploy to Vercel to enable the proxy.");
-          return;
-        }
-        if (resp.status === 404) {
+        if (resp.status === 404 || resp.status === 405 || resp.status === 501) {
           setStatus("API proxy not found on this host. Deploy to Vercel to enable /api.");
           return;
         }
