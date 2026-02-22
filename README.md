@@ -5,7 +5,8 @@ HackersGPT is a fully client-side, serverless chat UI for cybersecurity question
 - Static site (no backend, no database)
 - Conversations stored locally in your browser (`localStorage`)
 - Inference via **LLM7.io** using an OpenAI-compatible API
-- Uses a Vercel **rewrite proxy** (`/api/*`) to avoid browser CORS blocks (no custom server code)
+- Uses Vercel **serverless API routes** (`/api/*`) to proxy to LLM7.io and avoid browser CORS blocks
+- Optional live context enrichment: when you ask to "search" / "look up" / a CVE, the browser fetches results and injects them into the prompt
 
 ## Run locally
 
@@ -30,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File .\smoke.ps1 -NoStart
 1. Push this repo to GitHub.
 2. Import the repo in Vercel.
 3. Framework preset: **Other** (static).
-4. No build step; output is repository root. `vercel.json` rewrites `/api/*` to `https://api.llm7.io/v1/*`.
+4. No build step; output is repository root. The proxy lives in `api/`.
 
 ## LLM7.io settings
 
@@ -42,11 +43,11 @@ Open **Settings** in the app:
 
 ### If you hit CORS errors
 
-If your browser blocks requests to LLM7.io due to CORS, keep Base URL as `/api`. On Vercel, `vercel.json` rewrites `/api/*` to LLM7.io; locally it's provided by `dev-server.mjs`.
+If your browser blocks requests to LLM7.io due to CORS, keep Base URL as `/api`. On Vercel, `/api/*` is handled by serverless routes in `api/`; locally it's provided by `dev-server.mjs`.
 
 ## GitHub Pages
 
-GitHub Pages cannot run Vercel rewrites. If LLM7.io does not allow browser CORS, a pure GitHub Pages deployment will not be able to call the API.
+GitHub Pages cannot run the `/api/*` proxy routes. If LLM7.io does not allow browser CORS, a pure GitHub Pages deployment will not be able to call the API.
 
 ## Privacy
 

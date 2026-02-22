@@ -156,6 +156,24 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function normalizeForSearch(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function conversationMatchesQuery(convo, q) {
+  if (!q) return true;
+  const title = normalizeForSearch(convo?.title);
+  if (title.includes(q)) return true;
+  for (const m of convo?.messages || []) {
+    const c = normalizeForSearch(m?.content);
+    if (c.includes(q)) return true;
+  }
+  return false;
+}
+
 function markdownToSafeHtml(md) {
   const html = globalThis.marked ? marked.parse(md ?? "") : escapeHtml(md ?? "");
   const sanitized = globalThis.DOMPurify
@@ -210,6 +228,7 @@ const state = {
   inFlight: false,
   sidebarOpen: false,
   storageOk: true,
+  historySearch: "",
 };
 
 let lastFocusedBeforeModal = null;
@@ -471,6 +490,9 @@ function populateSettingsForm() {
     select.appendChild(opt);
   }
   select.value = state.settings.model;
+
+  const proxyStatus = $("#proxyStatus");
+  if (proxyStatus) proxyStatus.textContent = "Not tested.";
 }
 
 function readSettingsForm() {
@@ -506,7 +528,21 @@ function ensureMarkedConfigured() {
 function renderSidebar() {
   const list = $("#convoList");
   list.innerHTML = "";
-  const convos = [...state.conversations].sort((a, b) => lastMessageTimestamp(b).localeCompare(lastMessageTimestamp(a)));
+  const q = normalizeForSearch(state.historySearch);
+  const convos = [...state.conversations]
+    .sort((a, b) => lastMessageTimestamp(b).localeCompare(lastMessageTimestamp(a)))
+    .filter((c) => conversationMatchesQuery(c, q));
+
+  const clearBtn = $("#clearHistorySearchBtn");
+  if (clearBtn) clearBtn.hidden = !q;
+
+  if (convos.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "emptyList";
+    empty.textContent = q ? "No chats match your search." : "No chats yet.";
+    list.appendChild(empty);
+    return;
+  }
 
   for (const c of convos) {
     const lastMsg = (c.messages || []).slice(-1)[0];
@@ -705,7 +741,10 @@ function replaceLastAssistantContent(newContent) {
 function buildApiMessages(convo) {
   const history = convo?.messages || [];
   const maxTurns = 30;
-  const tail = history.slice(-maxTurns);
+  const tail = history
+    .filter((m) => m && (m.role === "user" || m.role === "assistant"))
+    .filter((m) => !(m.role === "assistant" && !String(m.content || "").trim()))
+    .slice(-maxTurns);
   const system = { role: "system", content: SYSTEM_PROMPT };
   return [system, ...tail.map((m) => ({ role: m.role, content: m.content }))];
 }
@@ -713,13 +752,62 @@ function buildApiMessages(convo) {
 async function fetchModels() {
   const url = `${state.settings.baseUrl.replace(/\/+$/, "")}/models`;
   const headers = { "Content-Type": "application/json" };
-  if (state.settings.token) headers.Authorization = `Bearer ${state.settings.token}`;
+  // LLM7's OpenAI-compatible gateway expects an Authorization header.
+  headers.Authorization = `Bearer ${state.settings.token || "unused"}`;
   const resp = await fetchWithTimeout(url, { method: "GET", headers }, 15000);
   if (!resp.ok) throw new Error(`Models request failed (${resp.status})`);
   const data = await resp.json().catch(() => null);
   const items = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
   const ids = items.map((m) => m.id).filter(Boolean);
   return ids;
+}
+
+async function testProxy() {
+  const proxyStatus = $("#proxyStatus");
+  const baseUrl = (state.settings.baseUrl || "").replace(/\/+$/, "");
+  const url = `${baseUrl}/ping`;
+  const resp = await fetchWithTimeout(url, { method: "GET", headers: { Accept: "application/json" } }, 8000);
+  const text = await resp.text().catch(() => "");
+  if (resp.ok) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // ignore
+    }
+    if (proxyStatus) proxyStatus.textContent = parsed?.ok ? "Ping OK. Testing chat..." : "Ping OK (unexpected payload). Testing chat...";
+
+    // Lightweight chat test (verifies POST routing + upstream).
+    const chatUrl = `${baseUrl}/chat/completions`;
+    const chatBody = {
+      model: state.settings.model,
+      messages: [
+        { role: "system", content: "You are a healthcheck. Reply only with the word ok." },
+        { role: "user", content: "ok" },
+      ],
+      temperature: 0,
+      stream: false,
+      max_tokens: 2,
+    };
+    const chatHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${state.settings.token || "unused"}`,
+    };
+    const chatResp = await fetchWithTimeout(
+      chatUrl,
+      { method: "POST", headers: chatHeaders, body: JSON.stringify(chatBody) },
+      15000,
+    );
+    const chatText = await chatResp.text().catch(() => "");
+    if (chatResp.ok) {
+      if (proxyStatus) proxyStatus.textContent = "OK.";
+      return true;
+    }
+    if (proxyStatus) proxyStatus.textContent = `Ping OK, chat failed (${chatResp.status}): ${chatText.slice(0, 120)}`;
+    return false;
+  }
+  if (proxyStatus) proxyStatus.textContent = `Failed (${resp.status}).`;
+  return false;
 }
 
 function looksLikeDisallowedRequest(text) {
@@ -750,7 +838,8 @@ function safetySuffixIfNeeded(userText) {
 async function callChatCompletions({ apiMessages, stream, signal }) {
   const url = `${state.settings.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const headers = { "Content-Type": "application/json" };
-  if (state.settings.token) headers.Authorization = `Bearer ${state.settings.token}`;
+  // LLM7's OpenAI-compatible gateway expects an Authorization header.
+  headers.Authorization = `Bearer ${state.settings.token || "unused"}`;
   if (stream) {
     headers.Accept = "text/event-stream";
     headers["Cache-Control"] = "no-cache";
@@ -865,6 +954,37 @@ async function sendUserMessage(text) {
 
   const apiMessages = buildApiMessages(convo);
   apiMessages[0].content = `${apiMessages[0].content}${safetySuffixIfNeeded(text)}`;
+
+  // Optional live search enrichment (Brave Leo pattern): browser fetches, injects context, model reasons over it.
+  let searchContext = "";
+  try {
+    const search = globalThis.hgptSearch;
+    if (search?.detectIntent) {
+      const intent = search.detectIntent(text);
+      if (intent?.needsSearch) {
+        setStatus("Searching...");
+        const signal = state.abortController.signal;
+        const searxResults = await search.searxSearch(intent.query, {
+          maxResults: 5,
+          signal,
+          basePath: "/api/search/searx",
+        });
+        const nvdResults =
+          intent.kind === "cve"
+            ? await search.nvdSearch(intent.query, { signal, basePath: "/api/search/nvd" })
+            : [];
+        searchContext = search.buildContextBlock({ intent, searxResults, nvdResults });
+      }
+    }
+  } catch (e) {
+    // If search fails (CORS/upstream), fall back to normal answering.
+  } finally {
+    setStatus(state.settings.streaming ? "Streaming..." : "Thinking...");
+  }
+
+  if (searchContext) {
+    apiMessages.splice(1, 0, { role: "system", content: searchContext });
+  }
 
   const messagesContainer = $("#messages");
   const chat = $("#chat");
@@ -984,7 +1104,7 @@ async function sendUserMessage(text) {
     let hint = "";
     if (String(state.settings.baseUrl || "").startsWith("/api")) {
       hint =
-        "\n\nYou're using the built-in /api proxy. On Vercel, vercel.json rewrites /api/* to api.llm7.io. If you're serving files with a simple static server, /api will not exist.";
+        "\n\nYou're using the built-in /api proxy. If you're on Vercel, ensure /api/ping returns OK and redeploy after changes. If /api/ping fails, the proxy routes are not live on this host.";
     }
     assembled = `**Error:** ${msg}${hint}`;
     updateUi(true);
@@ -1147,6 +1267,42 @@ function wireEvents() {
 
   $("#exportBtn").addEventListener("click", () => exportActiveChat());
 
+  $("#testProxyBtn").addEventListener("click", async () => {
+    $("#testProxyBtn").disabled = true;
+    const proxyStatus = $("#proxyStatus");
+    if (proxyStatus) proxyStatus.textContent = "Testing...";
+    try {
+      readSettingsForm();
+      await testProxy();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (proxyStatus) proxyStatus.textContent = `Failed: ${msg}`;
+    } finally {
+      $("#testProxyBtn").disabled = false;
+    }
+  });
+
+  const historySearch = $("#historySearch");
+  historySearch?.addEventListener("input", () => {
+    state.historySearch = historySearch.value || "";
+    renderSidebar();
+  });
+  $("#clearHistorySearchBtn")?.addEventListener("click", () => {
+    state.historySearch = "";
+    if (historySearch) historySearch.value = "";
+    renderSidebar();
+    historySearch?.focus?.();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+      if (isModalOpen()) return;
+      e.preventDefault();
+      setSidebarOpen(true);
+      historySearch?.focus?.();
+    }
+  });
+
   $("#toBottomBtn").addEventListener("click", () => {
     const chat = $("#chat");
     chat.scrollTop = chat.scrollHeight;
@@ -1178,7 +1334,7 @@ function bootstrap() {
 
   // QA: detect when /api proxy isn't available (e.g., GitHub Pages or simple static servers).
   if (String(state.settings.baseUrl || "").startsWith("/api")) {
-    fetchWithTimeout("/api/models", { method: "GET", headers: { Accept: "application/json" } }, 6000)
+    fetchWithTimeout("/api/ping", { method: "GET", headers: { Accept: "application/json" } }, 6000)
       .then((resp) => {
         if (resp.ok) return;
         if (resp.status === 404 || resp.status === 405 || resp.status === 501) {

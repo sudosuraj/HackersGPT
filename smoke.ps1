@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$required = @("index.html", "style.css", "app.js")
+$required = @("index.html", "style.css", "app.js", "js/search.js")
 foreach ($f in $required) {
   if (-not (Test-Path $f)) { throw "Missing required file: $f" }
 }

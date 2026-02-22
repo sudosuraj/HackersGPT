@@ -40,6 +40,21 @@
 
         <div class="sidebar__section">
           <div class="sidebar__sectionTitle">History</div>
+          <div class="sidebarSearch" role="search">
+            <label class="srOnly" for="historySearch">Search chats</label>
+            <input
+              class="sidebarSearch__input"
+              id="historySearch"
+              type="search"
+              placeholder="Search chats"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Search conversations"
+            />
+            <button class="sidebarSearch__clear" id="clearHistorySearchBtn" type="button" aria-label="Clear search" hidden>
+              &times;
+            </button>
+          </div>
           <ul class="convoList" id="convoList" aria-label="Conversation list"></ul>
         </div>
 
@@ -153,6 +168,14 @@
 
           <div class="field">
             <div class="field__row">
+              <div class="field__label">Connection</div>
+              <button class="btn btn--ghost btn--sm" id="testProxyBtn" type="button">Test</button>
+            </div>
+            <div class="field__hint" id="proxyStatus">Not tested.</div>
+          </div>
+
+          <div class="field">
+            <div class="field__row">
               <label class="field__label" for="model">Model</label>
               <button class="btn btn--ghost btn--sm" id="refreshModelsBtn" type="button">Refresh</button>
             </div>
@@ -169,7 +192,7 @@
               spellcheck="false"
               placeholder="Paste LLM7 token for higher limits"
             />
-            <div class="field__hint">Stored in localStorage on this device.</div>
+            <div class="field__hint">Stored locally. If empty, the app uses <code>Bearer unused</code>.</div>
           </div>
 
           <div class="field field--2col">
@@ -222,6 +245,7 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
+    <script src="./js/search.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

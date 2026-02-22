@@ -129,6 +129,43 @@ a:hover {
   letter-spacing: 0.08em;
 }
 
+.sidebarSearch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+
+.sidebarSearch__input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 9px 10px;
+  color: var(--text);
+  outline: none;
+  font-size: 13px;
+}
+
+.sidebarSearch__input:focus {
+  border-color: rgba(90, 143, 194, 0.45);
+  box-shadow: 0 0 0 4px rgba(90, 143, 194, 0.12);
+}
+
+.sidebarSearch__clear {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sidebarSearch__clear:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .convoList {
   list-style: none;
   padding: 0;
@@ -171,6 +208,14 @@ a:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.emptyList {
+  padding: 10px 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .sidebar__footer {
