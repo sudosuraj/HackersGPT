@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
 
 const PORT = Number(process.env.PORT || 8080);
-const UPSTREAM = "https://llm7.io/v1";
+const UPSTREAM = "https://api.llm7.io/v1";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -124,4 +124,3 @@ server.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Proxy: /api/* -> ${UPSTREAM}/*`);
 });
-

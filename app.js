@@ -984,7 +984,7 @@ async function sendUserMessage(text) {
     let hint = "";
     if (String(state.settings.baseUrl || "").startsWith("/api")) {
       hint =
-        "\n\nYou're using the built-in /api proxy. On Vercel, vercel.json rewrites /api/* to LLM7.io. If you're serving files with a simple static server, /api will not exist.";
+        "\n\nYou're using the built-in /api proxy. On Vercel, vercel.json rewrites /api/* to api.llm7.io. If you're serving files with a simple static server, /api will not exist.";
     }
     assembled = `**Error:** ${msg}${hint}`;
     updateUi(true);

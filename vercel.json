@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://llm7.io/v1/:path*"
+      "destination": "https://api.llm7.io/v1/:path*"
     }
   ],
   "headers": [

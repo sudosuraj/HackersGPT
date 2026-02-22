@@ -30,7 +30,7 @@ powershell -ExecutionPolicy Bypass -File .\smoke.ps1 -NoStart
 1. Push this repo to GitHub.
 2. Import the repo in Vercel.
 3. Framework preset: **Other** (static).
-4. No build step; output is repository root. `vercel.json` configures `/api/*` rewrites to LLM7.io.
+4. No build step; output is repository root. `vercel.json` rewrites `/api/*` to `https://api.llm7.io/v1/*`.
 
 ## LLM7.io settings
 
