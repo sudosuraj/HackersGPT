@@ -10,12 +10,26 @@ async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
+function getHeader(req, name) {
+  const key = Object.keys(req.headers).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key ? req.headers[key] : null;
+}
+
 async function proxyOnce(req, body, url) {
+  const contentType = getHeader(req, "content-type");
+  const accept = getHeader(req, "accept");
+  let auth = getHeader(req, "authorization");
+
+  if (auth && /^Bearer\s+Bearer\s+/i.test(auth)) {
+    auth = auth.replace(/^Bearer\s+/i, "");
+  }
+
   const headers = {
-    "Content-Type": req.headers["content-type"] || "application/json",
-    Accept: req.headers.accept || "*/*",
+    "Content-Type": contentType || "application/json",
+    Accept: accept || "*/*",
+    Authorization: auth || "Bearer unused",
   };
-  headers.Authorization = req.headers.authorization || "Bearer unused";
+
   return fetch(url, { method: "POST", headers, body });
 }
 
