@@ -50,8 +50,8 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULTS = {
-  // Default to same-origin proxy to avoid browser CORS issues.
-  baseUrl: "/api",
+  // Direct API by default.
+  baseUrl: "https://api.llm7.io/v1",
   model: "default",
   token: "",
   temperature: 0.4,
@@ -388,6 +388,26 @@ function setBusy(isBusy) {
   $("#messages").setAttribute("aria-busy", isBusy ? "true" : "false");
 }
 
+function updateRegenVisibility() {
+  const btn = $("#regenBtn");
+  if (!btn) return;
+
+  if (state.inFlight) {
+    btn.hidden = true;
+    return;
+  }
+
+  const convo = activeConversation();
+  if (!convo) {
+    btn.hidden = true;
+    return;
+  }
+
+  const lastMsg = convo.messages[convo.messages.length - 1];
+  const canRegen = lastMsg && lastMsg.role === "assistant" && lastMsg.content;
+  btn.hidden = !canRegen;
+}
+
 function setInFlight(inFlight) {
   state.inFlight = inFlight;
   const btn = $("#sendBtn");
@@ -402,6 +422,7 @@ function setInFlight(inFlight) {
     btn.classList.add("btn--primary");
     btn.disabled = !(($("#prompt")?.value || "").trim());
   }
+  updateRegenVisibility();
 }
 
 function setModelLabels(model) {
@@ -595,27 +616,72 @@ function renderSidebar() {
     const snippet = snippetRaw.replace(/\s+/g, " ").trim().slice(0, 56);
     const li = document.createElement("li");
     li.className = `convoItem ${c.id === state.activeId ? "convoItem--active" : ""}`;
-    li.setAttribute("role", "button");
-    li.setAttribute("tabindex", "0");
     li.dataset.id = c.id;
-    li.innerHTML = `
+
+    // Inner wrapper for the clickable area
+    const content = document.createElement("div");
+    content.className = "convoItem__content";
+    content.setAttribute("role", "button");
+    content.setAttribute("tabindex", "0");
+    content.innerHTML = `
       <div class="convoItem__title">${escapeHtml(c.title || "New chat")}</div>
       <div class="convoItem__meta">${escapeHtml(formatDateShort(lastMessageTimestamp(c)))} - ${escapeHtml(snippet)}</div>
     `;
-    li.addEventListener("click", () => {
+    content.addEventListener("click", () => {
       state.activeId = c.id;
       persistActiveId();
       renderAll({ forceScroll: true });
       closeSidebarIfMobile();
     });
-    li.addEventListener("keydown", (e) => {
+    content.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        li.click();
+        content.click();
       }
     });
+
+    // Delete button
+    const delBtn = document.createElement("button");
+    delBtn.className = "convoItem__del";
+    delBtn.type = "button";
+    delBtn.setAttribute("aria-label", `Delete chat ${c.title || "New chat"}`);
+    delBtn.innerHTML = `&times;`;
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteConversation(c.id);
+    });
+
+    li.appendChild(content);
+    li.appendChild(delBtn);
     list.appendChild(li);
   }
+}
+
+function deleteConversation(id) {
+  if (!confirm("Are you sure you want to delete this conversation?")) return;
+
+  const index = state.conversations.findIndex((c) => c.id === id);
+  if (index === -1) return;
+
+  state.conversations.splice(index, 1);
+
+  // If active was deleted, select another
+  if (state.activeId === id) {
+    if (state.conversations.length === 0) {
+      // Create new if none left
+      const newC = createConversation();
+      state.conversations.push(newC);
+      state.activeId = newC.id;
+    } else {
+      // Pick adjacent
+      const newIndex = Math.min(index, state.conversations.length - 1);
+      state.activeId = state.conversations[newIndex].id;
+    }
+  }
+
+  persistConversations();
+  persistActiveId();
+  renderAll({ forceScroll: true });
 }
 
 function attachCopyButtons(scopeEl) {
@@ -744,6 +810,7 @@ function renderAll({ forceScroll = false } = {}) {
   renderMessages();
   scrollToBottomIfAppropriate(forceScroll);
   updateToBottomBtn();
+  updateRegenVisibility();
 }
 
 function updateConvoTitleIfNeeded(convo) {
@@ -798,7 +865,6 @@ function buildApiMessages(convo) {
 async function fetchModels() {
   const url = `${state.settings.baseUrl.replace(/\/+$/, "")}/models`;
   const headers = { "Content-Type": "application/json" };
-  // LLM7's OpenAI-compatible gateway expects an Authorization header.
   headers.Authorization = `Bearer ${state.settings.token || "unused"}`;
   const resp = await fetchWithTimeout(url, { method: "GET", headers }, 15000);
   if (!resp.ok) throw new Error(`Models request failed (${resp.status})`);
@@ -808,58 +874,53 @@ async function fetchModels() {
   return ids;
 }
 
-async function testProxy() {
+async function testConnection() {
   const proxyStatus = $("#proxyStatus");
   const baseUrl = (state.settings.baseUrl || "").replace(/\/+$/, "");
-  const url = `${baseUrl}/ping`;
-  const resp = await fetchWithTimeout(url, { method: "GET", headers: { Accept: "application/json" } }, 8000);
-  const text = await resp.text().catch(() => "");
-  if (resp.ok) {
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // ignore
-    }
-    if (proxyStatus) proxyStatus.textContent = parsed?.ok ? "Ping OK. Testing chat..." : "Ping OK (unexpected payload). Testing chat...";
 
-    // Lightweight chat test (verifies POST routing + upstream).
-    const chatUrl = `${baseUrl}/chat/completions`;
-    const chatBody = {
-      model: state.settings.model,
-      messages: [
-        { role: "system", content: "You are a healthcheck. Reply only with the word ok." },
-        { role: "user", content: "ok" },
-      ],
-      temperature: 0,
-      stream: false,
-      max_tokens: 2,
-    };
-    const chatHeaders = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${state.settings.token || "unused"}`,
-    };
+  if (proxyStatus) proxyStatus.textContent = "Testing...";
+
+  // Lightweight chat test
+  const chatUrl = `${baseUrl}/chat/completions`;
+  const chatBody = {
+    model: state.settings.model,
+    messages: [
+      { role: "system", content: "Reply with ok." },
+      { role: "user", content: "ok" },
+    ],
+    temperature: 0,
+    stream: false,
+    max_tokens: 2,
+  };
+  const chatHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${state.settings.token || "unused"}`,
+  };
+
+  try {
     const chatResp = await fetchWithTimeout(
       chatUrl,
       { method: "POST", headers: chatHeaders, body: JSON.stringify(chatBody) },
       15000,
     );
     const chatText = await chatResp.text().catch(() => "");
+
     if (chatResp.ok) {
       if (proxyStatus) proxyStatus.textContent = "OK.";
       return true;
     }
-    if (proxyStatus) proxyStatus.textContent = `Ping OK, chat failed (${chatResp.status}): ${chatText.slice(0, 120)}`;
+    if (proxyStatus) proxyStatus.textContent = `Failed (${chatResp.status}): ${chatText.slice(0, 100)}`;
+    return false;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (proxyStatus) proxyStatus.textContent = `Error: ${msg}`;
     return false;
   }
-  if (proxyStatus) proxyStatus.textContent = `Failed (${resp.status}).`;
-  return false;
 }
 
 async function callChatCompletions({ apiMessages, stream, signal }) {
   const url = `${state.settings.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const headers = { "Content-Type": "application/json" };
-  // LLM7's OpenAI-compatible gateway expects an Authorization header.
   headers.Authorization = `Bearer ${state.settings.token || "unused"}`;
   if (stream) {
     headers.Accept = "text/event-stream";
@@ -887,7 +948,7 @@ async function callChatCompletions({ apiMessages, stream, signal }) {
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    throw new Error(`LLM7 error (${resp.status}): ${text.slice(0, 500)}`);
+    throw new Error(`API error (${resp.status}): ${text.slice(0, 500)}`);
   }
 
   return resp;
@@ -965,6 +1026,36 @@ async function sendUserMessage(text) {
 
   addMessage("user", text);
   renderAll({ forceScroll: true });
+
+  await fetchAssistantResponse(text);
+}
+
+async function regenerateLastResponse() {
+  const convo = activeConversation();
+  if (!convo) return;
+
+  // Abort previous if any
+  state.abortController?.abort?.();
+  state.abortController = new AbortController();
+
+  const lastMsg = convo.messages[convo.messages.length - 1];
+  if (!lastMsg || lastMsg.role !== "assistant") return;
+
+  // Remove last assistant message
+  convo.messages.pop();
+  persistConversations();
+  renderAll({ forceScroll: true });
+
+  // Get user text for search context
+  const lastUserMsg = convo.messages[convo.messages.length - 1];
+  const text = lastUserMsg?.role === "user" ? lastUserMsg.content : "";
+
+  await fetchAssistantResponse(text);
+}
+
+async function fetchAssistantResponse(text) {
+  const convo = activeConversation();
+  if (!convo) return;
 
   setBusy(true);
   setInFlight(true);
@@ -1121,12 +1212,7 @@ async function sendUserMessage(text) {
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    let hint = "";
-    if (String(state.settings.baseUrl || "").startsWith("/api")) {
-      hint =
-        "\n\nYou're using the built-in /api proxy. If you're on Vercel, ensure /api/ping returns OK and redeploy after changes. If /api/ping fails, the proxy routes are not live on this host.";
-    }
-    assembled = `**Error:** ${msg}${hint}`;
+    assembled = `**Error:** ${msg}`;
     updateUi(true);
     replaceLastAssistantContent(assembled);
     setStatus("Request failed.");
@@ -1209,6 +1295,10 @@ function wireEvents() {
     if (e.shiftKey) return;
     e.preventDefault();
     $("#sendBtn").click();
+  });
+
+  $("#regenBtn")?.addEventListener("click", () => {
+    regenerateLastResponse();
   });
 
   $("#newChatBtn").addEventListener("click", newChat);
@@ -1300,7 +1390,7 @@ function wireEvents() {
     if (proxyStatus) proxyStatus.textContent = "Testing...";
     try {
       readSettingsForm();
-      await testProxy();
+      await testConnection();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (proxyStatus) proxyStatus.textContent = `Failed: ${msg}`;
@@ -1359,20 +1449,7 @@ function bootstrap() {
   $("#sendBtn").disabled = true;
   $("#prompt").focus();
 
-  // QA: detect when /api proxy isn't available (e.g., GitHub Pages or simple static servers).
-  if (String(state.settings.baseUrl || "").startsWith("/api")) {
-    fetchWithTimeout("/api/ping", { method: "GET", headers: { Accept: "application/json" } }, 6000)
-      .then((resp) => {
-        if (resp.ok) return;
-        if (resp.status === 404 || resp.status === 405 || resp.status === 501) {
-          setStatus("API proxy not found on this host. Deploy to Vercel to enable /api.");
-          return;
-        }
-      })
-      .catch(() => {
-        // Keep quiet: proxy may still work for chat even if /models fails.
-      });
-  }
+  // No proxy check needed.
 }
 
 bootstrap();
