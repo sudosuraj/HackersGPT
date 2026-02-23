@@ -1,7 +1,18 @@
+function getHeader(req, name) {
+  const key = Object.keys(req.headers).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key ? req.headers[key] : null;
+}
+
 async function fetchUpstreamModels(req) {
   const candidates = ["https://api.llm7.io/v1/models", "https://llm7.io/v1/models"];
   const headers = { Accept: "application/json" };
-  headers.Authorization = req.headers.authorization || "Bearer unused";
+  let auth = getHeader(req, "authorization");
+
+  if (auth && /^Bearer\s+Bearer\s+/i.test(auth)) {
+    auth = auth.replace(/^Bearer\s+/i, "");
+  }
+
+  headers.Authorization = auth || "Bearer unused";
 
   let last = null;
   for (const url of candidates) {
